@@ -1,6 +1,6 @@
 {
   "name": "pi-candy",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "author": "bjornworldwide",
   "repository": {
@@ -13,10 +13,10 @@
   "files": [
     "index.ts", "border-overlay.ts", "color.ts", "command.ts",
     "direct-footer.ts", "editor-border.ts", "falling-blocks.ts", "pulse.ts",
-    "README.md", "INTEGRATION.md", "LICENSE"
+    "setup.ts", "README.md", "INTEGRATION.md", "LICENSE"
   ],
   "type": "module",
-  "description": "Visual customizations for Pi, starting with an animated footer logo",
+  "description": "Footer logo options for Pi (pi.dev), including a Tetris-like animation inspired by Pi’s homepage.",
   "keywords": ["pi-package"],
   "pi": {
     "extensions": ["./index.ts"]

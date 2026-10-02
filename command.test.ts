@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseFooterLogoSelection } from "./command.ts";
 
-test("bare footer-logo states select their corresponding setting", () => {
+test("bare pi-candy-logo states select their corresponding setting", () => {
 	for (const value of ["static", "pulse", "falling-blocks"] as const) {
 		assert.deepEqual(parseFooterLogoSelection(value), { kind: "animation", value });
 	}

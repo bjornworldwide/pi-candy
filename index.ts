@@ -1,14 +1,16 @@
-import { readFileSync, mkdirSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir, getMarkdownTheme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { backgroundAnsi, foregroundAnsi, Markdown, mixColors, rgbColor, stripTerminalSequences } from "@earendil-works/pi-tui";
-import { multicolorBrightness, multicolorFrame, type LogoBrightness, type LogoColorOption } from "./color.ts";
+import { monochromeFrame, multicolorBrightness, multicolorFrame, type LogoBrightness, type LogoColorOption } from "./color.ts";
 import { MONOCHROME_MEDIUM_DIM_MIX, PULSE_STEP_MS, PULSE_STEPS, pulseFrame } from "./pulse.ts";
 import { parseFooterLogoSelection } from "./command.ts";
 import { renderDirectFooter } from "./direct-footer.ts";
 import { LogoBorderEditor } from "./editor-border.ts";
 import { FALLING_BLOCK_FRAMES, fallingBlocksFrame, idleFrame, normalizeLogoAnimation, type LogoAnimation, type LogoFrame } from "./falling-blocks.ts";
+
+import { runSetup } from "./setup.ts";
 
 const configPath = join(getAgentDir(), "configs", "footer-logo.json");
 const guidePath = join(dirname(fileURLToPath(import.meta.url)), "INTEGRATION.md");
@@ -75,17 +77,31 @@ export default function footerLogo(pi: ExtensionAPI): void {
 	let currentContext: ExtensionContext | undefined;
 
 	function currentFrame(): LogoFrame {
-		const plain = !working ? idleFrame() : logoAnimation === "falling-blocks"
+		let plain = !working ? idleFrame() : logoAnimation === "falling-blocks"
 			? fallingBlocksFrame(frame)
 			: pulseFrame(frame);
 		const ctx = currentContext;
+		if (logoColor === "monochrome" && logoBrightness === "bright" && plain.color === "dim") {
+			plain = { ...plain, color: "muted" };
+		}
 		if (logoColor === "monochrome" && logoAnimation === "pulse" && working
-			&& plain.color === "muted" && ctx?.mode === "tui") {
-			const medium = mixColors(ctx.ui.theme.colors.muted, ctx.ui.theme.colors.dim, MONOCHROME_MEDIUM_DIM_MIX);
+			&& pulseFrame(frame).color === "muted" && ctx?.mode === "tui") {
+			const medium = logoBrightness === "bright"
+				? mixColors(ctx.ui.theme.colors.text, ctx.ui.theme.colors.muted, MONOCHROME_MEDIUM_DIM_MIX)
+				: mixColors(ctx.ui.theme.colors.muted, ctx.ui.theme.colors.dim, MONOCHROME_MEDIUM_DIM_MIX);
 			return { ...plain, styledRows: [
 				ctx.ui.theme.style(plain.rows[0], { fg: medium }),
 				ctx.ui.theme.style(plain.rows[1], { fg: medium }),
 			] };
+		}
+		if (logoColor === "monochrome" && logoAnimation === "falling-blocks" && working && ctx?.mode === "tui") {
+			const mode = ctx.ui.theme.getColorMode();
+			return monochromeFrame(
+				plain,
+				(color) => foregroundAnsi(ctx.ui.theme.colors[color], mode),
+				(color) => backgroundAnsi(ctx.ui.theme.colors[color], mode),
+				logoBrightness,
+			);
 		}
 		if (logoColor !== "multicolor" || ctx?.mode !== "tui") return plain;
 		const mode = ctx.ui.theme.getColorMode();
@@ -187,6 +203,27 @@ export default function footerLogo(pi: ExtensionAPI): void {
 		description: "Show commands or configure footer/editor ownership and integration",
 		handler: async (args, ctx) => {
 			const command = args.trim().toLowerCase();
+			if (command === "setup") {
+				if (ctx.mode !== "tui") { ctx.ui.notify("Run /pi-candy setup in interactive Pi.", "info"); return; }
+				let result;
+				try {
+					const current = loadConfig();
+					const customEditor = ctx.ui.getEditorComponent();
+					result = await runSetup(ctx.ui, current, {
+						fresh: !existsSync(configPath),
+						cooperatingFooter: layoutReady || logoVisible && !directOwned,
+						customEditor: !!customEditor && customEditor !== ownEditorFactory,
+					});
+					if (!result) return;
+					saveConfig(result.config);
+				} catch (error) {
+					ctx.ui.notify(`Could not complete setup: ${error instanceof Error ? error.message : String(error)}`, "error");
+					return;
+				}
+				if (result.reload) { await ctx.reload(); return; }
+				ctx.ui.notify("Pi-candy setup saved. Run /reload to apply.", "info");
+				return;
+			}
 			if (command === "integration") {
 				let guide: string;
 				try { guide = readFileSync(guidePath, "utf8"); }
@@ -220,28 +257,29 @@ export default function footerLogo(pi: ExtensionAPI): void {
 				return;
 			}
 			if (command && command !== "help") {
-				ctx.ui.notify("Usage: /pi-candy [help|integration|controlfooter on|off|controleditor on|off]", "info");
+				ctx.ui.notify("Usage: /pi-candy [help|setup|integration|controlfooter on|off|controleditor on|off]", "info");
 				return;
 			}
 			ctx.ui.notify([
 				"pi-candy commands:",
+				"/pi-candy setup — Guided setup for all logo options",
 				"To show the logo, use a cooperating footer or enable /pi-candy controlfooter on.",
 				"/pi-candy controlfooter on|off — Use a stock-style footer; may replace a custom footer",
 				"/pi-candy controleditor on|off — Optional prompt-border detail; defers to an existing custom editor",
 				"/pi-candy integration — Show the integration guide in the main transcript",
-				"/footer-logo pulse|falling-blocks|static|monochrome|multicolor|dim|bright — Choose logo state",
+				"/pi-candy-logo pulse|falling-blocks|static|monochrome|multicolor|dim|bright — Choose logo state",
 			].join("\n"), "info");
 		},
 	});
 
-	pi.registerCommand("footer-logo", {
+	pi.registerCommand("pi-candy-logo", {
 		description: "Choose the footer logo animation, color, and brightness",
 		handler: async (args, ctx) => {
 			const selection = parseFooterLogoSelection(args);
 			if (selection?.kind === "brightness") {
 				try {
 					saveConfig({ ...loadConfig(), logoBrightness: selection.value });
-					ctx.ui.notify(`Multicolor brightness set to ${selection.value}. Run /reload to apply.`, "info");
+					ctx.ui.notify(`Logo brightness set to ${selection.value}. Run /reload to apply.`, "info");
 				} catch (error) {
 					ctx.ui.notify(`Could not save logo brightness: ${error instanceof Error ? error.message : String(error)}`, "error");
 				}
@@ -266,7 +304,7 @@ export default function footerLogo(pi: ExtensionAPI): void {
 				}
 				return;
 			}
-			ctx.ui.notify("Usage: /footer-logo static|pulse|falling-blocks|monochrome|multicolor|dim|bright", "info");
+			ctx.ui.notify("Usage: /pi-candy-logo static|pulse|falling-blocks|monochrome|multicolor|dim|bright", "info");
 		},
 	});
 

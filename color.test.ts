@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BRAND_COLORS, multicolorFrame, type Rgb } from "./color.ts";
+import { BRAND_COLORS, monochromeFrame, multicolorFrame, type Rgb } from "./color.ts";
 import { FALLING_BLOCK_FRAMES, FINAL_ROWS, idleFrame } from "./falling-blocks.ts";
 
 const fg = ([r, g, b]: Rgb) => `\x1b[38;2;${r};${g};${b}m`;
@@ -37,6 +37,37 @@ test("each falling piece retains its hue across all three terminal rows", () => 
 			const actual = plain(cell);
 			const expected = frame.editorRow![index];
 			assert.ok(actual === expected || expected === "█" && actual === "▀");
+		}
+	}
+});
+
+test("monochrome clear flashes only the bottom half-cell line", () => {
+	const foreground = (tone: "dim" | "muted" | "text") => tone === "text" ? "\x1b[97m" : tone === "muted" ? "\x1b[37m" : "\x1b[90m";
+	const background = (tone: "dim" | "muted" | "text") => tone === "text" ? "\x1b[107m" : tone === "muted" ? "\x1b[47m" : "\x1b[100m";
+	for (const frame of FALLING_BLOCK_FRAMES) {
+		const painted = monochromeFrame(frame, foreground, background);
+		assert.equal(painted.color, "dim");
+		const bright = monochromeFrame(frame, foreground, background, "bright");
+		assert.equal(bright.color, "muted");
+		assert.deepEqual(bright.styledRows, painted.styledRows!.map((row) => row.replaceAll(foreground("dim"), foreground("muted")).replaceAll(background("dim"), background("muted")).replaceAll(foreground("text"), foreground("dim")).replaceAll(background("text"), background("dim"))));
+		assert.deepEqual(bright.styledEditorCells, painted.styledEditorCells!.map((cell) => cell.replaceAll(foreground("dim"), foreground("muted")).replaceAll(background("dim"), background("muted"))));
+		assert.ok(!painted.styledRows![0].includes(foreground("text")));
+		assert.ok(!painted.styledRows![0].includes(background("text")));
+		assert.ok(painted.styledEditorCells!.every((cell) => !cell.includes(foreground("text")) && !cell.includes(background("text"))));
+		if (frame.pixels![5].includes("flash")) {
+			for (let x = 0; x < 6; x++) {
+				const expected = frame.pixels![4][x]
+					? `${foreground("dim")}${background("text")}▀\x1b[0m`
+					: `${foreground("text")}▄\x1b[0m`;
+				assert.ok(painted.styledRows![1].includes(expected));
+				const brightExpected = frame.pixels![4][x]
+					? `${foreground("muted")}${background("dim")}▀\x1b[0m`
+					: `${foreground("dim")}▄\x1b[0m`;
+				assert.ok(bright.styledRows![1].includes(brightExpected));
+			}
+		} else {
+			assert.ok(!painted.styledRows![1].includes(foreground("text")));
+			assert.ok(!painted.styledRows![1].includes(background("text")));
 		}
 	}
 });

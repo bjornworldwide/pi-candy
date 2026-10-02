@@ -32,6 +32,22 @@ export function multicolorBrightness(
 	return pulseBrightness(frame, setting);
 }
 
+/** Preserve dim pieces while only the clearing half-cell row flashes. */
+export function monochromeFrame(
+	frame: LogoFrame,
+	foreground: (color: "dim" | "muted" | "text") => string,
+	background: (color: "dim" | "muted" | "text") => string,
+	brightness: LogoBrightness = "dim",
+): LogoFrame {
+	const baseline = brightness === "bright" ? "muted" : "dim";
+	const flash = brightness === "bright" ? "dim" : "text";
+	const tone = (rgb: Rgb) => rgb.every((channel) => channel === 255) ? flash : baseline;
+	return {
+		...multicolorFrame(frame, (rgb) => foreground(tone(rgb)), (rgb) => background(tone(rgb))),
+		color: baseline,
+	};
+}
+
 /** Paint the same four-column half-block bitmap used by Pi's startup header. */
 export function multicolorFrame(
 	frame: LogoFrame,
